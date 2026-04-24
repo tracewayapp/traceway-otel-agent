@@ -7,7 +7,7 @@ dist:
   module: github.com/tracewayapp/traceway-otel-agent
   name: traceway-otel-agent
   description: Traceway's OpenTelemetry Collector agent — host metrics + tailed logs
-  version: 0.1.0
+  version: 0.2.0
   output_path: ./dist
 
 receivers:
