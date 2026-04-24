@@ -1,0 +1,26 @@
+# Fast-mode overlay for tests/e2e/agent_e2e_test.go.
+#
+# Merged on top of config/default.yaml via a second --config= flag — the
+# collector supports recursive map-merge across multiple --config inputs, so
+# only the fields that differ for CI speed live here.
+#
+# Anything this file adds *beyond* a timing override is a bug: the point of
+# the test is to exercise the real production config.
+
+receivers:
+  hostmetrics:
+    collection_interval: 2s
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+  # Cloud detectors (ec2/gcp/azure) add seconds of startup time on non-cloud
+  # CI runners and contribute nothing to this test. Env + system are enough.
+  resourcedetection:
+    detectors: [env, system]
+
+service:
+  telemetry:
+    logs:
+      level: warn

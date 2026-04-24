@@ -1,0 +1,53 @@
+name: Publish install site
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve latest release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          if [ "${GITHUB_EVENT_NAME}" = "release" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName -q .tagName 2>/dev/null || true)"
+          fi
+          if [ -z "${TAG:-}" ]; then
+            TAG="__NOT_RELEASED__"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "resolved release tag: ${TAG}"
+
+      - name: Assemble site directory
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -eu
+          sed "s|__TRACEWAY_VERSION__|${TAG}|g" scripts/install.sh  > site/install.sh
+          sed "s|__TRACEWAY_VERSION__|${TAG}|g" scripts/install.ps1 > site/install.ps1
+          cp scripts/uninstall.sh site/uninstall.sh
+          chmod 0644 site/install.sh site/install.ps1 site/uninstall.sh
+          echo "--- site/ ---"
+          ls -la site/
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name=traceway-otel-agent-install --branch=main

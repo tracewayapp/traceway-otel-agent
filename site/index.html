@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="index,follow">
+  <title>Traceway OTel Agent — install</title>
+  <meta name="description" content="One-line install for the Traceway OTel Agent. Host metrics and tailed logs to your Traceway project over OTLP/HTTP.">
+  <style>
+    :root { color-scheme: dark light; --fg:#111; --bg:#fff; --code-bg:#f4f4f5; --code-fg:#111; --muted:#666; --accent:#2a6df4; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg:#eaeaea; --bg:#0d0d10; --code-bg:#17171b; --code-fg:#eaeaea; --muted:#9a9aa0; --accent:#7fa9ff; }
+    }
+    html, body { background: var(--bg); color: var(--fg); }
+    body {
+      font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      max-width: 720px; margin: 4rem auto; padding: 0 1.25rem;
+    }
+    h1 { font-size: 1.75rem; margin: 0 0 .25em; letter-spacing: -0.01em; }
+    h2 { font-size: 1.05rem; margin-top: 2.25em; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    a { color: var(--accent); }
+    .tag { color: var(--muted); margin-top: -.25em; }
+    pre {
+      background: var(--code-bg); color: var(--code-fg);
+      padding: 1rem 1.1rem; border-radius: 8px;
+      overflow-x: auto;
+      font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    pre code { color: inherit; }
+    .muted { color: var(--muted); font-size: .92rem; }
+    footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--code-bg); }
+    kbd { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font: 12px ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <h1>Traceway OTel Agent</h1>
+  <p class="tag">One-line host observability for <a href="https://tracewayapp.com">Traceway</a>. Host metrics and tailed logs over OTLP/HTTP.</p>
+
+  <h2>Linux &amp; macOS</h2>
+<pre><code>curl -fsSL https://install.tracewayapp.com/install.sh | TRACEWAY_TOKEN=&lt;your-token&gt; bash</code></pre>
+
+  <h2>Windows (PowerShell, admin)</h2>
+<pre><code>$env:TRACEWAY_TOKEN = "&lt;your-token&gt;"
+iwr -useb https://install.tracewayapp.com/install.ps1 | iex</code></pre>
+
+  <h2>Optional env vars</h2>
+  <p><kbd>TRACEWAY_ENDPOINT</kbd> <span class="muted">— OTLP base URL, default <code>https://cloud.tracewayapp.com/api/otel</code>.</span><br>
+     <kbd>TRACEWAY_SERVICE_NAME</kbd> <span class="muted">— <code>service.name</code>, default hostname.</span><br>
+     <kbd>TRACEWAY_LOG_PATHS</kbd> <span class="muted">— comma-separated globs to tail. Enables the logs pipeline.</span></p>
+
+  <h2>Uninstall</h2>
+<pre><code>curl -fsSL https://install.tracewayapp.com/uninstall.sh | bash</code></pre>
+
+  <footer>
+    <p class="muted">Source: <a href="https://github.com/tracewayapp/traceway-otel-agent">github.com/tracewayapp/traceway-otel-agent</a> · <a href="https://tracewayapp.com">tracewayapp.com</a></p>
+  </footer>
+</body>
+</html>

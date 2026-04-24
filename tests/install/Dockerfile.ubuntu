@@ -1,0 +1,20 @@
+# Systemd-enabled Ubuntu image used to exercise scripts/install.sh end-to-end.
+# Kept minimal — only what install.sh needs (curl, tar, sudo) plus systemd so
+# the service registration path is actually tested.
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        systemd systemd-sysv \
+        curl tar sudo ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && systemctl mask \
+        dev-hugepages.mount sys-fs-fuse-connections.mount \
+        systemd-logind.service getty.target console-getty.service \
+        systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-control.socket \
+        systemd-firstboot.service \
+        systemd-tmpfiles-setup.service systemd-tmpfiles-setup-dev.service
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

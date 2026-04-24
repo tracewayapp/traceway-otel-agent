@@ -1,0 +1,25 @@
+# systemd unit reference for traceway-otel-agent.
+# The installer writes this file to /etc/systemd/system/traceway-otel-agent.service
+# with the same contents. This copy is bundled in the release archive for
+# operators installing manually.
+
+[Unit]
+Description=Traceway OTel Agent
+Documentation=https://github.com/tracewayapp/traceway-otel-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/traceway-otel-agent/token
+ExecStart=/usr/local/bin/traceway-otel-agent --config=/etc/traceway-otel-agent/config.yaml
+Restart=on-failure
+RestartSec=10s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/etc/traceway-otel-agent
+
+[Install]
+WantedBy=multi-user.target

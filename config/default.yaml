@@ -1,0 +1,86 @@
+# Traceway OTel Agent — collector configuration.
+#
+# This file is shipped verbatim to installed hosts as config.yaml (the
+# installer does not re-generate it). When TRACEWAY_LOG_PATHS is set, the
+# installer writes a separate logs-overlay.yaml alongside this file and the
+# service starts with both: `--config=config.yaml --config=logs-overlay.yaml`
+# (the collector merges them recursively at startup).
+#
+# Required env vars (supplied via systemd EnvironmentFile / launchd plist /
+# Windows service environment):
+#   TRACEWAY_TOKEN         Traceway project token (Bearer credential)
+#   TRACEWAY_ENDPOINT      OTLP/HTTP base URL (default cloud.tracewayapp.com/api/otel)
+#   TRACEWAY_SERVICE_NAME  service.name resource attribute
+#
+# Edit freely — your changes persist across agent restarts. They will be
+# overwritten if you re-run install.sh, so if you customize, pin a version
+# (TRACEWAY_VERSION=vX.Y.Z) and diff before upgrading.
+
+receivers:
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      # `*.utilization` metrics are gauges (%) computed as the delta of `*.time`
+      # counters between scrapes. They're off by default in hostmetricsreceiver
+      # and have to be opted into. We enable the three the README advertises.
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      load: {}
+      disk: {}
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      network: {}
+      process:
+        mute_process_exe_error: true
+        mute_process_user_error: true
+        mute_process_io_error: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+
+  resourcedetection:
+    detectors: [env, system, ec2, gcp, azure]
+    override: false
+    timeout: 2s
+
+  resource:
+    attributes:
+      - key: service.name
+        value: ${env:TRACEWAY_SERVICE_NAME}
+        action: upsert
+
+  batch:
+    timeout: 10s
+    send_batch_size: 8192
+
+exporters:
+  otlphttp:
+    endpoint: ${env:TRACEWAY_ENDPOINT}
+    headers:
+      Authorization: Bearer ${env:TRACEWAY_TOKEN}
+    compression: gzip
+
+extensions:
+  health_check:
+    endpoint: 127.0.0.1:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [memory_limiter, resourcedetection, resource, batch]
+      exporters: [otlphttp]
+  telemetry:
+    logs:
+      level: info

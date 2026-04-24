@@ -1,0 +1,28 @@
+# OpenTelemetry Collector Builder (OCB) manifest for traceway-otel-agent.
+#
+# Build: `builder --config=builder-config.yaml` (installs to ./dist/)
+# Versions are pinned; bump together when moving to a newer collector release.
+
+dist:
+  module: github.com/tracewayapp/traceway-otel-agent
+  name: traceway-otel-agent
+  description: Traceway's OpenTelemetry Collector agent — host metrics + tailed logs
+  version: 0.1.0
+  output_path: ./dist
+
+receivers:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.116.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/filelogreceiver v0.116.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.116.0
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.116.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.116.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.116.0
+
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.116.0
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.116.0
+
+extensions:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.116.0

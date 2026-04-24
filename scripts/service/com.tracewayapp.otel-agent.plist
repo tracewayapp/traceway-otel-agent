@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd plist reference for traceway-otel-agent on macOS.
+  The installer writes this file to /Library/LaunchDaemons/com.tracewayapp.otel-agent.plist
+  with EnvironmentVariables populated from TRACEWAY_* values supplied at install time.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.tracewayapp.otel-agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/traceway-otel-agent</string>
+    <string>--config=/usr/local/etc/traceway-otel-agent/config.yaml</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TRACEWAY_TOKEN</key><string>REPLACE_ME</string>
+    <key>TRACEWAY_ENDPOINT</key><string>https://cloud.tracewayapp.com/api/otel</string>
+    <key>TRACEWAY_SERVICE_NAME</key><string>REPLACE_ME</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/var/log/traceway-otel-agent.log</string>
+  <key>StandardErrorPath</key><string>/var/log/traceway-otel-agent.log</string>
+</dict>
+</plist>

@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64}
+          - {goos: linux, goarch: arm64}
+          - {goos: darwin, goarch: amd64}
+          - {goos: darwin, goarch: arm64}
+          - {goos: windows, goarch: amd64}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install OCB
+        run: go install go.opentelemetry.io/collector/cmd/builder@v0.116.0
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          builder --config=builder-config.yaml
+
+      - name: Package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -eu
+          VERSION="${GITHUB_REF_NAME}"
+          NAME="traceway-otel-agent_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p "pkg/${NAME}"
+          if [ "${GOOS}" = "windows" ]; then
+            cp dist/traceway-otel-agent.exe "pkg/${NAME}/traceway-otel-agent.exe"
+          else
+            cp dist/traceway-otel-agent "pkg/${NAME}/traceway-otel-agent"
+          fi
+          cp README.md config/default.yaml "pkg/${NAME}/"
+          if [ -d scripts/service ]; then
+            cp -r scripts/service "pkg/${NAME}/service"
+          fi
+          cd pkg
+          if [ "${GOOS}" = "windows" ]; then
+            zip -r "../${NAME}.zip" "${NAME}" >/dev/null
+          else
+            tar -czf "../${NAME}.tar.gz" "${NAME}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            traceway-otel-agent_*.tar.gz
+            traceway-otel-agent_*.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: pkg-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          set -eu
+          cd artifacts
+          sha256sum traceway-otel-agent_* > checksums.txt
+          echo "--- checksums.txt ---"
+          cat checksums.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/traceway-otel-agent_*.tar.gz
+            artifacts/traceway-otel-agent_*.zip
+            artifacts/checksums.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true
