@@ -49,9 +49,13 @@ step "build systemd docker image"
 docker build -t "$IMAGE" -f tests/install/Dockerfile.ubuntu tests/install/ >/dev/null
 
 step "start container"
+# /sys/fs/cgroup must be rw for cgroups v2: systemd writes its own slices at
+# boot. --tmpfs /run + /run/lock stops systemd from failing on read-only /run
+# on some docker configs.
 CID="$(docker run -d --privileged \
   --cgroupns=host \
-  -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
+  --tmpfs /run --tmpfs /run/lock \
+  -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
   -v "$STAGE/fixture:/fixture:ro" \
   -v "$STAGE/mockotlp:/usr/local/bin/mockotlp:ro" \
   -v "$REPO_ROOT/scripts:/traceway-scripts:ro" \
@@ -60,6 +64,11 @@ echo "container: $CID"
 
 step "wait for systemd"
 for i in $(seq 30); do
+  if ! docker inspect -f '{{.State.Running}}' "$CID" 2>/dev/null | grep -q true; then
+    echo "container exited before systemd came up; last logs:"
+    docker logs "$CID" 2>&1 | tail -40 || true
+    exit 1
+  fi
   state="$(docker exec "$CID" systemctl is-system-running 2>/dev/null || true)"
   case "$state" in
     running|degraded) echo "systemd: $state"; break ;;
