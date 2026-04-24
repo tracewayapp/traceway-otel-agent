@@ -37,6 +37,12 @@ jobs:
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           builder --config=builder-config.yaml
+          # OCB v0.116 uses `dist.name` verbatim regardless of GOOS, so the
+          # Windows binary comes out without an .exe suffix. Rename it so the
+          # package step (and end users) get the expected filename.
+          if [ "${GOOS}" = "windows" ]; then
+            mv dist/traceway-otel-agent dist/traceway-otel-agent.exe
+          fi
 
       - name: Package
         env:

@@ -34,8 +34,9 @@ validate: build
 lint:
 	bash -n scripts/install.sh
 	bash -n scripts/uninstall.sh
+	bash -n scripts/release.sh
 	@if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck scripts/install.sh scripts/uninstall.sh tests/install/run.sh; \
+		shellcheck scripts/install.sh scripts/uninstall.sh scripts/release.sh tests/install/run.sh; \
 	else \
 		echo "shellcheck not installed, skipping"; \
 	fi

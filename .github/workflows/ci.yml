@@ -50,7 +50,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y shellcheck
-          shellcheck scripts/install.sh scripts/uninstall.sh tests/install/run.sh
+          shellcheck scripts/install.sh scripts/uninstall.sh scripts/release.sh tests/install/run.sh
 
       - name: yamllint
         run: |
