@@ -3,6 +3,15 @@ name: Publish install site
 on:
   push:
     branches: [main]
+    # Only rebuild the install site when something that ends up in site/ has
+    # actually changed. Docs / test / collector-config changes don't affect
+    # the deployed artifacts, so there's no reason to redeploy for them.
+    paths:
+      - 'scripts/install.sh'
+      - 'scripts/install.ps1'
+      - 'scripts/uninstall.sh'
+      - 'site/**'
+      - '.github/workflows/publish-install.yml'
   release:
     types: [published]
   workflow_dispatch:
