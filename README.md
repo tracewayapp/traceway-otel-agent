@@ -9,26 +9,52 @@
 <h3 align="center">Open-source error tracking and performance monitoring for All applications</h3>
 
 <p align="center">
-  <a href="https://tracewayapp.com">Website</a> · <a href="https://docs.tracewayapp.com">Docs</a> · <a href="https://github.com/tracewayapp/go-client">Go Client SDK</a>
+  <a href="https://tracewayapp.com">Website</a> · <a href="https://docs.tracewayapp.com">Docs</a>
 </p>
 
 # Traceway OTel Agent
 
-One-line host observability for [Traceway](https://tracewayapp.com). A
-pre-configured [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)
+A simple, pre-configured [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)
 distribution (built with [OCB](https://opentelemetry.io/docs/collector/custom-collector/))
-that ships host metrics every 60s and tailed log files to your Traceway
-project over OTLP/HTTP. Runs as a background service via systemd, launchd,
-or Windows Service.
+that pulls host metrics every 60s and tails log files, then ships both to
+**any OTLP/HTTP-compatible backend**. Runs as a background service via systemd,
+launchd, or Windows Service.
+
+**Built for** sysadmins, SREs, and platform engineers who want host
+observability without compiling and tuning the upstream OpenTelemetry
+Collector themselves. Vendor-agnostic on the receiving side — point it at
+Traceway, a self-hosted Jaeger / Grafana stack, or any other OTLP/HTTP
+endpoint by setting `TRACEWAY_ENDPOINT`.
+
+> **Auth is Bearer-only.** Every request goes out with
+> `Authorization: Bearer ${TRACEWAY_TOKEN}` and nothing else. Compatible
+> with Traceway, Grafana Cloud (bearer token), Honeycomb, New Relic OTLP,
+> and most other OpenTelemetry collectors. **Not** compatible out of the
+> box with backends expecting Basic auth, custom API-key headers
+> (`X-Api-Key`, `DD-API-KEY`, …), HMAC-signed requests, mTLS client certs,
+> or AWS sigv4.
+>
+> **Looking for contributors here.** Adding a new auth mode is usually a
+> small, well-scoped change — extend the `otlphttp` exporter config and add
+> a couple of env vars in `install.sh` / `install.ps1`. If you need Basic,
+> custom API-key headers, or mTLS support, open a PR — partial drafts are
+> welcome and we'll review + merge promptly. Sigv4 and HMAC are bigger
+> lifts (request-time signing, not a static header), so open an issue
+> first and we'll sketch a design together. Either way, this is a
+> deliberately small surface area and the kind of contribution we want.
+
+**Design goals**
+
+- **Easy to install** — one `curl | bash` line, no YAML to write.
+- **Configured by default** — sane scrape interval, sane batching, sane retries.
+- **Small surface area** — only the receivers/processors/exporters needed for host metrics + tailed logs are compiled in. Auditable in one sitting.
 
 ```bash
 curl -fsSL https://install.tracewayapp.com/install.sh | TRACEWAY_TOKEN=<your-token> bash
 ```
 
-This is a **host agent**, not an application SDK. For traces, exceptions,
-or in-process runtime metrics from a Go/Node/Python service, use the
-Traceway client for that language (e.g. [`go-client`](https://go.tracewayapp.com)).
-The agent runs *alongside* your apps, watching the box they run on.
+This is a **host agent**, not an application SDK — for app traces and
+in-process runtime metrics, use the per-language Traceway client.
 
 ## Install
 
@@ -36,10 +62,10 @@ All installers read the same env vars:
 
 | Var                     | Default                                  | Purpose                                                       |
 | ----------------------- | ---------------------------------------- | ------------------------------------------------------------- |
-| `TRACEWAY_TOKEN`        | *(required)*                             | Traceway project token (Bearer auth)                          |
+| `TRACEWAY_TOKEN`        | _(required)_                             | Project token. Sent verbatim as `Authorization: Bearer <token>` — the only auth mode this agent supports |
 | `TRACEWAY_ENDPOINT`     | `https://cloud.tracewayapp.com/api/otel` | Override for self-hosted Traceway                             |
 | `TRACEWAY_SERVICE_NAME` | `$(hostname)`                            | `service.name` resource attribute                             |
-| `TRACEWAY_LOG_PATHS`    | *(unset)*                                | Comma-separated globs to tail. Enables logs pipeline when set |
+| `TRACEWAY_LOG_PATHS`    | _(unset)_                                | Comma-separated globs to tail. Enables logs pipeline when set |
 
 ### Linux (systemd) / macOS (launchd)
 
@@ -56,13 +82,13 @@ curl -fsSL https://install.tracewayapp.com/install.sh | \
 
 Installs (`<cfg>` = `/etc/traceway-otel-agent` on Linux, `/usr/local/etc/traceway-otel-agent` on macOS):
 
-| Path                                         | Contents                                                     |
-| -------------------------------------------- | ------------------------------------------------------------ |
-| `/usr/local/bin/traceway-otel-agent`         | Binary                                                       |
-| `<cfg>/config.yaml`                          | Byte-for-byte copy of [`config/default.yaml`](config/default.yaml) — edit freely |
-| `<cfg>/logs-overlay.yaml`                    | Only when `TRACEWAY_LOG_PATHS` is set — merged on top at startup |
-| `<cfg>/token` *(mode 0600)*                  | `EnvironmentFile` with `TRACEWAY_TOKEN` + friends            |
-| service unit                                 | `/etc/systemd/system/traceway-otel-agent.service` (hardened: `ProtectSystem`, `PrivateTmp`) or `/Library/LaunchDaemons/com.tracewayapp.otel-agent.plist` |
+| Path                                 | Contents                                                                                                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/usr/local/bin/traceway-otel-agent` | Binary                                                                                                                                                   |
+| `<cfg>/config.yaml`                  | Byte-for-byte copy of [`config/default.yaml`](config/default.yaml) — edit freely                                                                         |
+| `<cfg>/logs-overlay.yaml`            | Only when `TRACEWAY_LOG_PATHS` is set — merged on top at startup                                                                                         |
+| `<cfg>/token` _(mode 0600)_          | `EnvironmentFile` with `TRACEWAY_TOKEN` + friends                                                                                                        |
+| service unit                         | `/etc/systemd/system/traceway-otel-agent.service` (hardened: `ProtectSystem`, `PrivateTmp`) or `/Library/LaunchDaemons/com.tracewayapp.otel-agent.plist` |
 
 ### Windows (PowerShell, admin)
 
@@ -103,11 +129,11 @@ the service's registry `Environment` key, readable only by `SYSTEM` +
 
 ## Managing the service
 
-| Platform     | Status                                   | Restart                                                       | Follow logs                                                          |
-| ------------ | ---------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Linux        | `systemctl status traceway-otel-agent`   | `systemctl restart traceway-otel-agent`                       | `journalctl -u traceway-otel-agent -f`                               |
-| macOS        | `launchctl list \| grep traceway`         | `launchctl kickstart -k system/com.tracewayapp.otel-agent`    | `tail -f /var/log/traceway-otel-agent.log`                           |
-| Windows      | `Get-Service TracewayOtelAgent`          | `Restart-Service TracewayOtelAgent`                           | `Get-EventLog -LogName Application -Source TracewayOtelAgent -Newest 20` |
+| Platform | Status                                 | Restart                                                    | Follow logs                                                              |
+| -------- | -------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Linux    | `systemctl status traceway-otel-agent` | `systemctl restart traceway-otel-agent`                    | `journalctl -u traceway-otel-agent -f`                                   |
+| macOS    | `launchctl list \| grep traceway`      | `launchctl kickstart -k system/com.tracewayapp.otel-agent` | `tail -f /var/log/traceway-otel-agent.log`                               |
+| Windows  | `Get-Service TracewayOtelAgent`        | `Restart-Service TracewayOtelAgent`                        | `Get-EventLog -LogName Application -Source TracewayOtelAgent -Newest 20` |
 
 Health check (all platforms): `curl http://127.0.0.1:13133/` → `200`.
 
@@ -120,15 +146,15 @@ and diff before upgrading.
 
 ### Host metrics (60s scrape interval)
 
-| Metric                                               | Unit           | Notes                                    |
-| ---------------------------------------------------- | -------------- | ---------------------------------------- |
-| `system.cpu.utilization`                             | `1`            | CPU % per state per core                 |
-| `system.cpu.load_average.{1m,5m,15m}`                | `1`            | Unix load averages                       |
-| `system.memory.{usage,utilization}`                  | `By` / `1`     | Memory bytes / %                         |
-| `system.disk.{io,operations}`                        | `By` / `{ops}` | Per-device I/O                           |
-| `system.filesystem.{usage,utilization}`              | `By` / `1`     | Per-mount bytes / %                      |
-| `system.network.{io,packets,errors,connections}`     | mixed          | Per-interface                            |
-| `process.{cpu.time,memory.usage,memory.virtual}`     | mixed          | Per-process RSS / VSZ / CPU              |
+| Metric                                           | Unit           | Notes                       |
+| ------------------------------------------------ | -------------- | --------------------------- |
+| `system.cpu.utilization`                         | `1`            | CPU % per state per core    |
+| `system.cpu.load_average.{1m,5m,15m}`            | `1`            | Unix load averages          |
+| `system.memory.{usage,utilization}`              | `By` / `1`     | Memory bytes / %            |
+| `system.disk.{io,operations}`                    | `By` / `{ops}` | Per-device I/O              |
+| `system.filesystem.{usage,utilization}`          | `By` / `1`     | Per-mount bytes / %         |
+| `system.network.{io,packets,errors,connections}` | mixed          | Per-interface               |
+| `process.{cpu.time,memory.usage,memory.virtual}` | mixed          | Per-process RSS / VSZ / CPU |
 
 The agent captures the **machine**; language SDKs (e.g.
 [`go-client`](https://go.tracewayapp.com)) capture the **process**. Run
@@ -150,16 +176,16 @@ the raw line becomes the body. Each record carries `log.file.path` and
 
 ### Cadence, batching, retries
 
-| Setting                     | Value                            | Source                                                   |
-| --------------------------- | -------------------------------- | -------------------------------------------------------- |
-| Metrics scrape              | 60s                              | `hostmetrics.collection_interval`                        |
-| Log tail                    | continuous from EOF              | `filelog.start_at: end` (no backfill on restart)         |
-| Batch flush                 | 10s or 8192 points               | `batch.timeout` / `send_batch_size`                      |
-| Export compression          | gzip                             | `otlphttp.compression`                                   |
-| In-memory retry queue       | ~1000 batches                    | `otlphttp.sending_queue` (default)                       |
-| Retry backoff               | 5s → 30s exponential             | `otlphttp.retry_on_failure.initial_interval` / `max_interval` |
-| Max retry window per batch  | 5 minutes                        | `otlphttp.retry_on_failure.max_elapsed_time`             |
-| Memory guard                | 256 MiB                          | `memory_limiter.limit_mib`                               |
+| Setting                    | Value                | Source                                                        |
+| -------------------------- | -------------------- | ------------------------------------------------------------- |
+| Metrics scrape             | 60s                  | `hostmetrics.collection_interval`                             |
+| Log tail                   | continuous from EOF  | `filelog.start_at: end` (no backfill on restart)              |
+| Batch flush                | 10s or 8192 points   | `batch.timeout` / `send_batch_size`                           |
+| Export compression         | gzip                 | `otlphttp.compression`                                        |
+| In-memory retry queue      | ~1000 batches        | `otlphttp.sending_queue` (default)                            |
+| Retry backoff              | 5s → 30s exponential | `otlphttp.retry_on_failure.initial_interval` / `max_interval` |
+| Max retry window per batch | 5 minutes            | `otlphttp.retry_on_failure.max_elapsed_time`                  |
+| Memory guard               | 256 MiB              | `memory_limiter.limit_mib`                                    |
 
 When Traceway is unreachable, batches retry for up to 5 minutes then drop;
 new batches queue (≤1000) behind retries, oldest-first when full. **The
@@ -240,11 +266,11 @@ make clean
 
 Three test layers, each catching a different class of regression:
 
-| Layer | Entry point                        | Time  | Catches                                                                                                    |
-| ----- | ---------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------- |
-| 1     | `make validate` + `make lint`      | < 10s | OCB manifest doesn't resolve; config syntax errors; shell/YAML/PowerShell bugs                             |
-| 2     | `make test-e2e`                    | ~20s  | Exporter doesn't ship data; wrong Bearer header; `service.name` missing; expected host metrics missing     |
-| 3     | `make test-install`                | ~60s  | `install.sh` download / checksum / systemd wiring breaks; service fails to boot; no metrics after install  |
+| Layer | Entry point                   | Time  | Catches                                                                                                   |
+| ----- | ----------------------------- | ----- | --------------------------------------------------------------------------------------------------------- |
+| 1     | `make validate` + `make lint` | < 10s | OCB manifest doesn't resolve; config syntax errors; shell/YAML/PowerShell bugs                            |
+| 2     | `make test-e2e`               | ~20s  | Exporter doesn't ship data; wrong Bearer header; `service.name` missing; expected host metrics missing    |
+| 3     | `make test-install`           | ~60s  | `install.sh` download / checksum / systemd wiring breaks; service fails to boot; no metrics after install |
 
 **Layer 2** runs the OCB-built collector against **the real
 `config/default.yaml`**, merged on top of a small
@@ -284,7 +310,7 @@ Required repo secrets: `CLOUDFLARE_API_TOKEN` (scoped to the
   needs cgroups v2 (`cat /proc/filesystems | grep cgroup2`). On macOS Docker
   Desktop this doesn't work cleanly — run it in CI or a Linux VM.
 - **`make test-install` passes but no metrics arrive**: `docker exec <cid>
-  journalctl -u traceway-otel-agent` inside the container. Usually an
+journalctl -u traceway-otel-agent` inside the container. Usually an
   env-substitution error — the mock URL wasn't substituted into `endpoint:`.
 - **OCB build fails with dep resolution errors**: `builder-config.yaml`
   pins every component to the same `otelcol_version`; bump them together.
