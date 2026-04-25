@@ -1,17 +1,25 @@
 # Cloudflare Pages content-type + cache rules.
-# Install scripts are fetched by curl / iwr — short cache and explicit text type.
+#
+# Install scripts: explicit text type and `no-store` so freshly-released
+# versions reach users immediately. Without no-store there's a 5-minute
+# (or whatever max-age says) window after each release where edge caches
+# serve the previous tag — and "I just released, why isn't it live" is the
+# worst kind of debugging.
+#
+# Pages Functions / static-asset egress is essentially free, so the cost of
+# bypassing the edge for these tiny shell scripts is negligible.
 
 /install.sh
   Content-Type: text/x-shellscript; charset=utf-8
-  Cache-Control: public, max-age=300
+  Cache-Control: no-store
 
 /uninstall.sh
   Content-Type: text/x-shellscript; charset=utf-8
-  Cache-Control: public, max-age=300
+  Cache-Control: no-store
 
 /install.ps1
   Content-Type: text/plain; charset=utf-8
-  Cache-Control: public, max-age=300
+  Cache-Control: no-store
 
 /*
   X-Content-Type-Options: nosniff
