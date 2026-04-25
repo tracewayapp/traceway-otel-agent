@@ -154,9 +154,7 @@ and diff before upgrading.
 | `system.network.{io,packets,errors,connections}` | mixed          | Per-interface               |
 | `process.{cpu.time,memory.usage,memory.virtual}` | mixed          | Per-process RSS / VSZ / CPU |
 
-The agent captures the **machine**; language SDKs (e.g.
-[`go-client`](https://go.tracewayapp.com)) capture the **process**. Run
-both if you want both views.
+The agent captures the **machine**;
 
 ### Logs (opt-in)
 
