@@ -47,10 +47,25 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -eu
-          sed "s|__TRACEWAY_VERSION__|${TAG}|g" scripts/install.sh  > site/install.sh
-          sed "s|__TRACEWAY_VERSION__|${TAG}|g" scripts/install.ps1 > site/install.ps1
+          # Anchor the substitution to the literal assignment line so we don't
+          # also rewrite the placeholder occurrences inside the safety check
+          # ("|__TRACEWAY_VERSION__|" inside the case / -eq compare). A naive
+          # global sed turns the trap arm into the real version and bricks
+          # every install.
+          sed 's|DEFAULT_VERSION="__TRACEWAY_VERSION__"|DEFAULT_VERSION="'"${TAG}"'"|' \
+              scripts/install.sh > site/install.sh
+          sed "s|else { '__TRACEWAY_VERSION__' })|else { '${TAG}' })|" \
+              scripts/install.ps1 > site/install.ps1
           cp scripts/uninstall.sh site/uninstall.sh
           chmod 0644 site/install.sh site/install.ps1 site/uninstall.sh
+
+          # Fail loudly if either substitution didn't take effect — that would
+          # mean the assignment-line text drifted from what we're matching here.
+          grep -q "^DEFAULT_VERSION=\"${TAG}\"$" site/install.sh \
+            || { echo "install.sh substitution did not match"; exit 1; }
+          grep -q "else { '${TAG}' })" site/install.ps1 \
+            || { echo "install.ps1 substitution did not match"; exit 1; }
+
           echo "--- site/ ---"
           ls -la site/
 
