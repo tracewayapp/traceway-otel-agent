@@ -18,7 +18,7 @@
 
 receivers:
   hostmetrics:
-    collection_interval: 30s
+    collection_interval: 60s
     scrapers:
       # `*.utilization` metrics are gauges (%) computed as the delta of `*.time`
       # counters between scrapes. They're off by default in hostmetricsreceiver

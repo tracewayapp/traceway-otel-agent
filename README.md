@@ -17,7 +17,7 @@
 One-line host observability for [Traceway](https://tracewayapp.com). A
 pre-configured [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)
 distribution (built with [OCB](https://opentelemetry.io/docs/collector/custom-collector/))
-that ships host metrics every 30s and tailed log files to your Traceway
+that ships host metrics every 60s and tailed log files to your Traceway
 project over OTLP/HTTP. Runs as a background service via systemd, launchd,
 or Windows Service.
 
@@ -118,7 +118,7 @@ and diff before upgrading.
 
 ## What gets captured
 
-### Host metrics (30s scrape interval)
+### Host metrics (60s scrape interval)
 
 | Metric                                               | Unit           | Notes                                    |
 | ---------------------------------------------------- | -------------- | ---------------------------------------- |
@@ -152,7 +152,7 @@ the raw line becomes the body. Each record carries `log.file.path` and
 
 | Setting                     | Value                            | Source                                                   |
 | --------------------------- | -------------------------------- | -------------------------------------------------------- |
-| Metrics scrape              | 30s                              | `hostmetrics.collection_interval`                        |
+| Metrics scrape              | 60s                              | `hostmetrics.collection_interval`                        |
 | Log tail                    | continuous from EOF              | `filelog.start_at: end` (no backfill on restart)         |
 | Batch flush                 | 10s or 8192 points               | `batch.timeout` / `send_batch_size`                      |
 | Export compression          | gzip                             | `otlphttp.compression`                                   |
