@@ -103,3 +103,12 @@ jobs:
             artifacts/checksums.txt
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      # GitHub suppresses workflow cascades from GITHUB_TOKEN-created events,
+      # so the `release: published` trigger on publish-install.yml will not
+      # fire on its own. workflow_dispatch is one of the documented
+      # exceptions, so trigger it explicitly here.
+      - name: Trigger install-site republish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run publish-install.yml --repo "${{ github.repository }}"
