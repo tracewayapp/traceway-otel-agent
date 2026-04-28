@@ -76,6 +76,7 @@ curl -fsSL https://install.tracewayapp.com/install.sh | \
   TRACEWAY_TOKEN=<your-token> \
   TRACEWAY_SERVICE_NAME=api-prod-eu-1 \
   TRACEWAY_LOG_PATHS="/var/log/app/*.log,/var/log/nginx/access.log" \
+  TRACEWAY_PROCESS_NAMES=myapp \
   bash
 ```
 
@@ -105,7 +106,8 @@ Parameter form (no env vars):
 ```powershell
 & ([scriptblock]::Create((iwr -useb https://install.tracewayapp.com/install.ps1).Content)) `
   -Token "<your-token>" -ServiceNameAttr "api-prod-eu-1" `
-  -LogPaths "C:\logs\app\*.log,C:\ProgramData\nginx\logs\access.log"
+  -LogPaths "C:\logs\app\*.log,C:\ProgramData\nginx\logs\access.log" `
+  -ProcessNames "myapp"
 ```
 
 Installs the binary to `C:\Program Files\TracewayOtelAgent\`, config to
@@ -157,6 +159,23 @@ and diff before upgrading.
 | `process.{cpu.time,memory.usage,memory.virtual}` | mixed          | Per-process RSS / VSZ / CPU. **Opt-in only** — set `TRACEWAY_PROCESS_NAMES=<name1,name2>` or `*` for all processes |
 
 The agent captures the **machine**;
+
+### Per-process metrics (opt-in)
+
+`TRACEWAY_PROCESS_NAMES` is **optional** — you don't need it for the
+host-level metrics above. Set it only when you want per-process CPU /
+memory broken out for specific binaries.
+
+| `TRACEWAY_PROCESS_NAMES` | What you get |
+| ------------------------ | ------------ |
+| _unset / empty_          | **Default.** No `process.*` metrics emitted. |
+| `myapp`                  | Per-process metrics for processes named exactly `myapp`. |
+| `myapp,postgres,nginx`   | Multiple exact names, comma-separated. |
+| `*`                      | All running processes (one data point per process per scrape — high cardinality, use deliberately). |
+
+Off by default because the upstream `process` scraper emits one data
+point per running process per scrape, which scales linearly with the
+host's process count and dominates ingest volume on busy hosts.
 
 ### Logs (opt-in)
 
