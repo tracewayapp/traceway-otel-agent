@@ -58,12 +58,13 @@ in-process runtime metrics, use the per-language Traceway client.
 
 All installers read the same env vars:
 
-| Var                     | Default                                  | Purpose                                                       |
-| ----------------------- | ---------------------------------------- | ------------------------------------------------------------- |
-| `TRACEWAY_TOKEN`        | _(required)_                             | Project token. Sent verbatim as `Authorization: Bearer <token>` — the only auth mode this agent supports |
-| `TRACEWAY_ENDPOINT`     | `https://cloud.tracewayapp.com/api/otel` | Override for self-hosted Traceway                             |
-| `TRACEWAY_SERVICE_NAME` | `$(hostname)`                            | `service.name` resource attribute                             |
-| `TRACEWAY_LOG_PATHS`    | _(unset)_                                | Comma-separated globs to tail. Enables logs pipeline when set |
+| Var                       | Default                                  | Purpose                                                       |
+| ------------------------- | ---------------------------------------- | ------------------------------------------------------------- |
+| `TRACEWAY_TOKEN`          | _(required)_                             | Project token. Sent verbatim as `Authorization: Bearer <token>` — the only auth mode this agent supports |
+| `TRACEWAY_ENDPOINT`       | `https://cloud.tracewayapp.com/api/otel` | Override for self-hosted Traceway                             |
+| `TRACEWAY_SERVICE_NAME`   | `$(hostname)`                            | `service.name` resource attribute                             |
+| `TRACEWAY_LOG_PATHS`      | _(unset)_                                | Comma-separated globs to tail. Enables logs pipeline when set |
+| `TRACEWAY_PROCESS_NAMES`  | _(unset)_                                | Comma-separated process names (e.g. `myapp,postgres`) or `*` for all processes. Off by default — the OTel `process` scraper emits one data point per running process per scrape, which scales linearly with the host's process count. Set this when you want per-process CPU / memory metrics for specific binaries |
 
 ### Linux (systemd) / macOS (launchd)
 
@@ -85,6 +86,7 @@ Installs (`<cfg>` = `/etc/traceway-otel-agent` on Linux, `/usr/local/etc/tracewa
 | `/usr/local/bin/traceway-otel-agent` | Binary                                                                                                                                                   |
 | `<cfg>/config.yaml`                  | Byte-for-byte copy of [`config/default.yaml`](config/default.yaml) — edit freely                                                                         |
 | `<cfg>/logs-overlay.yaml`            | Only when `TRACEWAY_LOG_PATHS` is set — merged on top at startup                                                                                         |
+| `<cfg>/process-overlay.yaml`         | Only when `TRACEWAY_PROCESS_NAMES` is set — merged on top at startup                                                                                     |
 | `<cfg>/token` _(mode 0600)_          | `EnvironmentFile` with `TRACEWAY_TOKEN` + friends                                                                                                        |
 | service unit                         | `/etc/systemd/system/traceway-otel-agent.service` (hardened: `ProtectSystem`, `PrivateTmp`) or `/Library/LaunchDaemons/com.tracewayapp.otel-agent.plist` |
 
@@ -152,7 +154,7 @@ and diff before upgrading.
 | `system.disk.{io,operations}`                    | `By` / `{ops}` | Per-device I/O              |
 | `system.filesystem.{usage,utilization}`          | `By` / `1`     | Per-mount bytes / %         |
 | `system.network.{io,packets,errors,connections}` | mixed          | Per-interface               |
-| `process.{cpu.time,memory.usage,memory.virtual}` | mixed          | Per-process RSS / VSZ / CPU |
+| `process.{cpu.time,memory.usage,memory.virtual}` | mixed          | Per-process RSS / VSZ / CPU. **Opt-in only** — set `TRACEWAY_PROCESS_NAMES=<name1,name2>` or `*` for all processes |
 
 The agent captures the **machine**;
 
@@ -204,7 +206,8 @@ buffering open an issue (path: `file_storage` extension +
   │   2. GET github.com/.../releases/download/vX.Y.Z/*.tar.gz    │
   │   3. verify sha256 against checksums.txt                     │
   │   4. copy default.yaml → config.yaml                         │
-  │      (+ logs-overlay.yaml if TRACEWAY_LOG_PATHS is set)      │
+  │      (+ logs-overlay.yaml    if TRACEWAY_LOG_PATHS set)      │
+  │      (+ process-overlay.yaml if TRACEWAY_PROCESS_NAMES set)  │
   │   5. register systemd / launchd / Windows service            │
   └────────────────────────────┬─────────────────────────────────┘
                                │
@@ -216,11 +219,13 @@ buffering open an issue (path: `file_storage` extension +
 ```
 
 Installed `config.yaml` is a byte-for-byte copy of
-[`config/default.yaml`](config/default.yaml); the logs overlay (only when
-`TRACEWAY_LOG_PATHS` is set) is merged on top at startup via a second
-`--config=` flag. The Bearer token never hits process listings — stored in
-a mode-0600 `EnvironmentFile` (Linux), inlined in a root-owned plist
-(macOS), or in the service's registry `Environment` key (Windows).
+[`config/default.yaml`](config/default.yaml); the logs overlay (when
+`TRACEWAY_LOG_PATHS` is set) and the process-metrics overlay (when
+`TRACEWAY_PROCESS_NAMES` is set) are each merged on top at startup via
+additional `--config=` flags. The Bearer token never hits process
+listings — stored in a mode-0600 `EnvironmentFile` (Linux), inlined in a
+root-owned plist (macOS), or in the service's registry `Environment` key
+(Windows).
 
 ## Uninstall
 

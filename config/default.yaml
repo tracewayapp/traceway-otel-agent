@@ -1,16 +1,24 @@
 # Traceway OTel Agent — collector configuration.
 #
 # This file is shipped verbatim to installed hosts as config.yaml (the
-# installer does not re-generate it). When TRACEWAY_LOG_PATHS is set, the
-# installer writes a separate logs-overlay.yaml alongside this file and the
-# service starts with both: `--config=config.yaml --config=logs-overlay.yaml`
+# installer does not re-generate it). When TRACEWAY_LOG_PATHS or
+# TRACEWAY_PROCESS_NAMES is set, the installer writes one or more overlay
+# files alongside this file and the service starts with all of them, e.g.
+# `--config=config.yaml --config=logs-overlay.yaml --config=process-overlay.yaml`
 # (the collector merges them recursively at startup).
 #
 # Required env vars (supplied via systemd EnvironmentFile / launchd plist /
 # Windows service environment):
-#   TRACEWAY_TOKEN         Traceway project token (Bearer credential)
-#   TRACEWAY_ENDPOINT      OTLP/HTTP base URL (default cloud.tracewayapp.com/api/otel)
-#   TRACEWAY_SERVICE_NAME  service.name resource attribute
+#   TRACEWAY_TOKEN          Traceway project token (Bearer credential)
+#   TRACEWAY_ENDPOINT       OTLP/HTTP base URL (default cloud.tracewayapp.com/api/otel)
+#   TRACEWAY_SERVICE_NAME   service.name resource attribute
+#
+# Optional env vars:
+#   TRACEWAY_LOG_PATHS      Comma-separated globs to tail. Enables logs pipeline.
+#   TRACEWAY_PROCESS_NAMES  Comma-separated process names (or `*` for all) —
+#                           opts into per-process metrics. Off by default
+#                           because cardinality scales with the host's
+#                           process count.
 #
 # Edit freely — your changes persist across agent restarts. They will be
 # overwritten if you re-run install.sh, so if you customize, pin a version
@@ -38,10 +46,12 @@ receivers:
           system.filesystem.utilization:
             enabled: true
       network: {}
-      process:
-        mute_process_exe_error: true
-        mute_process_user_error: true
-        mute_process_io_error: true
+      # The `process` scraper is intentionally NOT enabled here. It emits one
+      # data point per running OS process per scrape, which scales linearly
+      # with the host's process count and dominates ingest volume. Opt in by
+      # setting `TRACEWAY_PROCESS_NAMES=<comma-separated names>` (or `*` for
+      # all processes) and re-running install.sh — the installer writes a
+      # `process-overlay.yaml` that adds the scraper with the right filter.
 
 processors:
   memory_limiter:
