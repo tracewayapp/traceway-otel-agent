@@ -21,6 +21,7 @@ case "$(uname -s)" in
     $SUDO rm -f /etc/systemd/system/traceway-otel-agent.service
     $SUDO systemctl daemon-reload 2>/dev/null || true
     $SUDO rm -rf /etc/traceway-otel-agent
+    $SUDO rm -rf /var/lib/traceway-otel-agent
     $SUDO rm -f /usr/local/bin/traceway-otel-agent
     ;;
   Darwin)
@@ -28,6 +29,7 @@ case "$(uname -s)" in
     $SUDO launchctl unload -w /Library/LaunchDaemons/com.tracewayapp.otel-agent.plist 2>/dev/null || true
     $SUDO rm -f /Library/LaunchDaemons/com.tracewayapp.otel-agent.plist
     $SUDO rm -rf /usr/local/etc/traceway-otel-agent
+    $SUDO rm -rf /usr/local/var/traceway-otel-agent
     $SUDO rm -f /usr/local/bin/traceway-otel-agent
     $SUDO rm -f /var/log/traceway-otel-agent.log
     ;;

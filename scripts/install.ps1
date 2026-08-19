@@ -24,6 +24,15 @@
     metrics. Off by default because cardinality scales with the host's
     process count.
 
+.PARAMETER PersistentQueue
+    'on' (default) or 'off'. When on, the exporter queue is backed by an
+    on-disk file with a 64 MiB cap, so batches queued during a backend
+    outage survive agent restarts.
+
+.PARAMETER StorageDir
+    Directory for the persistent-queue database.
+    Default: C:\ProgramData\TracewayOtelAgent\storage.
+
 .PARAMETER Version
     Agent version (vX.Y.Z). Set automatically when fetched via install.tracewayapp.com.
 #>
@@ -34,6 +43,8 @@ param(
     [string] $ServiceNameAttr = $(if ($env:TRACEWAY_SERVICE_NAME)  { $env:TRACEWAY_SERVICE_NAME }  else { $env:COMPUTERNAME }),
     [string] $LogPaths        = $env:TRACEWAY_LOG_PATHS,
     [string] $ProcessNames    = $env:TRACEWAY_PROCESS_NAMES,
+    [string] $PersistentQueue = $(if ($env:TRACEWAY_PERSISTENT_QUEUE) { $env:TRACEWAY_PERSISTENT_QUEUE } else { 'on' }),
+    [string] $StorageDir      = $(if ($env:TRACEWAY_STORAGE_DIR)   { $env:TRACEWAY_STORAGE_DIR }   else { 'C:\ProgramData\TracewayOtelAgent\storage' }),
     [string] $Version         = $(if ($env:TRACEWAY_VERSION)       { $env:TRACEWAY_VERSION }       else { '__TRACEWAY_VERSION__' })
 )
 
@@ -183,6 +194,30 @@ $includeBlock
         Remove-Item -Force $processOverlayPath
     }
 
+    # Persistent-queue overlay: shipped verbatim in the release archive (like
+    # default.yaml) and loaded via an extra --config= flag. On by default;
+    # set TRACEWAY_PERSISTENT_QUEUE=off (or -PersistentQueue off) to keep
+    # the queue in-memory.
+    $persistOn = ($PersistentQueue.Trim().ToLower() -notin @('off', 'false', '0'))
+    $storageOverlayPath = Join-Path $ConfigDir 'storage-overlay.yaml'
+    $storageOverlayConfigArg = ''
+    $srcStorageOverlay = Join-Path $srcDir 'storage-overlay.yaml'
+    if ($persistOn -and -not (Test-Path $srcStorageOverlay)) {
+        Write-Step 'warning: this release predates the persistent queue (no storage-overlay.yaml in archive); continuing without it'
+        $persistOn = $false
+    }
+    if ($persistOn) {
+        Write-Step "installing storage overlay -> $storageOverlayPath (queue data in $StorageDir, 64 MiB cap)"
+        Copy-Item -Path $srcStorageOverlay -Destination $storageOverlayPath -Force
+        New-Item -ItemType Directory -Force -Path $StorageDir | Out-Null
+        $storageOverlayConfigArg = ' --config="' + $storageOverlayPath + '"'
+    } elseif (Test-Path $storageOverlayPath) {
+        # Stale overlay from a previous persistent-queue install. The data
+        # directory is left alone; it goes away with the config dir on
+        # uninstall.
+        Remove-Item -Force $storageOverlayPath
+    }
+
     # Restrict ProgramData config dir to Administrators + SYSTEM.
     $acl = Get-Acl $ConfigDir
     $acl.SetAccessRuleProtection($true, $false)
@@ -203,7 +238,7 @@ $includeBlock
 
     # New-Service passes BinaryPathName directly to the Win32 CreateService
     # API, avoiding the sc.exe + PowerShell native-argument-quoting pitfall.
-    $binArgs = '"' + $BinPath + '" --config="' + $ConfigPath + '"' + $overlayConfigArg + $processOverlayConfigArg
+    $binArgs = '"' + $BinPath + '" --config="' + $ConfigPath + '"' + $overlayConfigArg + $processOverlayConfigArg + $storageOverlayConfigArg
     New-Service -Name $ServiceName -BinaryPathName $binArgs `
                 -DisplayName 'Traceway OTel Agent' -StartupType Automatic | Out-Null
     Set-Service -Name $ServiceName -Description 'Traceway OpenTelemetry host agent'
@@ -212,7 +247,8 @@ $includeBlock
     $envVars = @(
         "TRACEWAY_TOKEN=$Token",
         "TRACEWAY_ENDPOINT=$Endpoint",
-        "TRACEWAY_SERVICE_NAME=$ServiceNameAttr"
+        "TRACEWAY_SERVICE_NAME=$ServiceNameAttr",
+        "TRACEWAY_STORAGE_DIR=$StorageDir"
     )
     New-ItemProperty -Path $regPath -Name Environment -Value $envVars -PropertyType MultiString -Force | Out-Null
 
@@ -237,6 +273,9 @@ $includeBlock
     }
     if ([string]::IsNullOrWhiteSpace($ProcessNames)) {
         Write-Step "note: per-process metrics are disabled (set TRACEWAY_PROCESS_NAMES=<name1,name2> or '*' and re-run to enable)."
+    }
+    if (-not $persistOn) {
+        Write-Step 'note: persistent queue is disabled (queue is in-memory; batches pending at restart are lost).'
     }
 } finally {
     Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue

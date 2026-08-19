@@ -1,0 +1,22 @@
+# Mirror of the overlay scripts/install.sh and scripts/install.ps1 write when
+# TRACEWAY_LOG_PATHS is set. `make validate` loads it on top of
+# config/default.yaml so upstream config-schema drift in the filelog receiver
+# is caught in CI; installer-generated overlays are never exercised by the
+# other test layers. Keep this file structurally identical to what the
+# installers emit.
+
+receivers:
+  filelog:
+    include:
+      - "/var/log/app/*.log"
+      - "/var/log/nginx/access.log"
+    start_at: end
+    include_file_path: true
+    include_file_name: true
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog]
+      processors: [memory_limiter, resourcedetection, resource, batch]
+      exporters: [otlphttp]

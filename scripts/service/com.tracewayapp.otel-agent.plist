@@ -12,12 +12,14 @@
   <array>
     <string>/usr/local/bin/traceway-otel-agent</string>
     <string>--config=/usr/local/etc/traceway-otel-agent/config.yaml</string>
+    <string>--config=/usr/local/etc/traceway-otel-agent/storage-overlay.yaml</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>TRACEWAY_TOKEN</key><string>REPLACE_ME</string>
     <key>TRACEWAY_ENDPOINT</key><string>https://cloud.tracewayapp.com/api/otel</string>
     <key>TRACEWAY_SERVICE_NAME</key><string>REPLACE_ME</string>
+    <key>TRACEWAY_STORAGE_DIR</key><string>/usr/local/var/traceway-otel-agent</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

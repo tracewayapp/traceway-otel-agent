@@ -1,7 +1,10 @@
 # systemd unit reference for traceway-otel-agent.
 # The installer writes this file to /etc/systemd/system/traceway-otel-agent.service
-# with the same contents. This copy is bundled in the release archive for
-# operators installing manually.
+# with the same contents (this reflects the default install, with the
+# persistent queue enabled). This copy is bundled in the release archive for
+# operators installing manually. If you skip the persistent queue, drop the
+# storage-overlay.yaml --config flag and the /var/lib path from
+# ReadWritePaths.
 
 [Unit]
 Description=Traceway OTel Agent
@@ -12,14 +15,14 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/traceway-otel-agent/token
-ExecStart=/usr/local/bin/traceway-otel-agent --config=/etc/traceway-otel-agent/config.yaml
+ExecStart=/usr/local/bin/traceway-otel-agent --config=/etc/traceway-otel-agent/config.yaml --config=/etc/traceway-otel-agent/storage-overlay.yaml
 Restart=on-failure
 RestartSec=10s
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/etc/traceway-otel-agent
+ReadWritePaths=/etc/traceway-otel-agent /var/lib/traceway-otel-agent
 
 [Install]
 WantedBy=multi-user.target

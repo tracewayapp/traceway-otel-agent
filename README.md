@@ -44,7 +44,7 @@ endpoint by setting `TRACEWAY_ENDPOINT`.
 **Design goals**
 
 - **Easy to install** — one `curl | bash` line, no YAML to write.
-- **Configured by default** — sane scrape interval, sane batching, sane retries.
+- **Configured by default** — sane scrape interval, sane batching, sane retries, crash-safe export queue.
 - **Small surface area** — only the receivers/processors/exporters needed for host metrics + tailed logs are compiled in. Auditable in one sitting.
 
 ```bash
@@ -65,6 +65,7 @@ All installers read the same env vars:
 | `TRACEWAY_SERVICE_NAME`   | `$(hostname)`                            | `service.name` resource attribute                             |
 | `TRACEWAY_LOG_PATHS`      | _(unset)_                                | Comma-separated globs to tail. Enables logs pipeline when set |
 | `TRACEWAY_PROCESS_NAMES`  | _(unset)_                                | Comma-separated process names (e.g. `myapp,postgres`) or `*` for all processes. Off by default — the OTel `process` scraper emits one data point per running process per scrape, which scales linearly with the host's process count. Set this when you want per-process CPU / memory metrics for specific binaries |
+| `TRACEWAY_PERSISTENT_QUEUE` | `on`                                   | Set `off` to keep the exporter queue in-memory. When on (the default), queued batches are stored on disk with a 64 MiB hard cap and survive agent restarts |
 
 ### Linux (systemd) / macOS (launchd)
 
@@ -88,6 +89,8 @@ Installs (`<cfg>` = `/etc/traceway-otel-agent` on Linux, `/usr/local/etc/tracewa
 | `<cfg>/config.yaml`                  | Byte-for-byte copy of [`config/default.yaml`](config/default.yaml) — edit freely                                                                         |
 | `<cfg>/logs-overlay.yaml`            | Only when `TRACEWAY_LOG_PATHS` is set — merged on top at startup                                                                                         |
 | `<cfg>/process-overlay.yaml`         | Only when `TRACEWAY_PROCESS_NAMES` is set — merged on top at startup                                                                                     |
+| `<cfg>/storage-overlay.yaml`         | Unless `TRACEWAY_PERSISTENT_QUEUE=off` — enables the disk-backed queue (copy of [`config/storage-overlay.yaml`](config/storage-overlay.yaml))            |
+| queue data dir _(mode 0700)_         | `/var/lib/traceway-otel-agent` (Linux) or `/usr/local/var/traceway-otel-agent` (macOS). Override with `TRACEWAY_STORAGE_DIR`                             |
 | `<cfg>/token` _(mode 0600)_          | `EnvironmentFile` with `TRACEWAY_TOKEN` + friends                                                                                                        |
 | service unit                         | `/etc/systemd/system/traceway-otel-agent.service` (hardened: `ProtectSystem`, `PrivateTmp`) or `/Library/LaunchDaemons/com.tracewayapp.otel-agent.plist` |
 
@@ -119,13 +122,17 @@ the service's registry `Environment` key, readable only by `SYSTEM` +
 ### Manual install (air-gapped / custom init)
 
 1. Download the archive for your OS/arch from [Releases](../../releases), verify sha256 against `checksums.txt` in the same release.
-2. Extract: the archive contains the binary, `default.yaml` (the config), and `service/` templates.
+2. Extract: the archive contains the binary, `default.yaml` (the config), `storage-overlay.yaml` (the disk-backed queue), and `service/` templates.
 3. Drop the binary on `$PATH` and run:
 
    ```bash
    TRACEWAY_TOKEN=<token> TRACEWAY_ENDPOINT=https://cloud.tracewayapp.com/api/otel \
-   TRACEWAY_SERVICE_NAME=$(hostname) traceway-otel-agent --config=/path/to/default.yaml
+   TRACEWAY_SERVICE_NAME=$(hostname) TRACEWAY_STORAGE_DIR=/var/lib/traceway-otel-agent \
+   traceway-otel-agent --config=/path/to/default.yaml --config=/path/to/storage-overlay.yaml
    ```
+
+   Drop the second `--config=` flag (and `TRACEWAY_STORAGE_DIR`) if you don't
+   want the disk-backed queue.
 
 4. Wire it up with your init system using `service/` as a starting point.
 
@@ -158,7 +165,8 @@ and diff before upgrading.
 | `system.network.{io,packets,errors,connections}` | mixed          | Per-interface               |
 | `process.{cpu.time,memory.usage,memory.virtual}` | mixed          | Per-process RSS / VSZ / CPU. **Opt-in only** — set `TRACEWAY_PROCESS_NAMES=<name1,name2>` or `*` for all processes |
 
-The agent captures the **machine**;
+The agent captures the **machine**; traces and in-process runtime metrics
+come from your application's Traceway SDK.
 
 ### Per-process metrics (opt-in)
 
@@ -199,16 +207,53 @@ the raw line becomes the body. Each record carries `log.file.path` and
 | Log tail                   | continuous from EOF  | `filelog.start_at: end` (no backfill on restart)              |
 | Batch flush                | 10s or 8192 points   | `batch.timeout` / `send_batch_size`                           |
 | Export compression         | gzip                 | `otlphttp.compression`                                        |
-| In-memory retry queue      | ~1000 batches        | `otlphttp.sending_queue` (default)                            |
+| Queue ahead of retries     | 1000 batches, on disk | `otlphttp.sending_queue.storage` → `file_storage`            |
+| Queue disk cap             | 64 MiB (hard)        | `file_storage.max_size` in `storage-overlay.yaml`             |
 | Retry backoff              | 5s → 30s exponential | `otlphttp.retry_on_failure.initial_interval` / `max_interval` |
 | Max retry window per batch | 5 minutes            | `otlphttp.retry_on_failure.max_elapsed_time`                  |
 | Memory guard               | 256 MiB              | `memory_limiter.limit_mib`                                    |
 
 When Traceway is unreachable, batches retry for up to 5 minutes then drop;
-new batches queue (≤1000) behind retries, oldest-first when full. **The
-queue is in-memory** — an agent restart loses pending data. For durable
-buffering open an issue (path: `file_storage` extension +
-`sending_queue.storage`).
+new batches queue (≤1000) behind retries and are dropped once the queue is
+full. The queue itself is disk-backed by default, so it survives agent
+restarts. See [Durability](#durability-persistent-queue-on-by-default).
+
+### Durability (persistent queue, on by default)
+
+The exporter queue is backed by an on-disk database
+([`storage-overlay.yaml`](config/storage-overlay.yaml), installed by
+default). Batches that were queued while the backend was unreachable
+survive an agent restart or crash and are re-sent on startup. No setup
+needed.
+
+| `TRACEWAY_PERSISTENT_QUEUE` | What you get |
+| --------------------------- | ------------ |
+| _unset / `on`_              | **Default.** The queue is stored on disk and replayed after a restart or crash. |
+| `off`                       | The queue lives in memory. A restart loses whatever was still queued. |
+
+Disk usage is bounded twice over: the queue holds at most 1000 batches, and
+the database file has a hard 64 MiB cap (`file_storage.max_size`, enforced
+by the storage engine, so the file cannot grow past it). When either limit
+is hit, new batches are dropped, exactly like the in-memory queue when full.
+
+Queue data lives in `/var/lib/traceway-otel-agent` (Linux),
+`/usr/local/var/traceway-otel-agent` (macOS), or
+`C:\ProgramData\TracewayOtelAgent\storage` (Windows), mode 0700, removed on
+uninstall. Override the location with `TRACEWAY_STORAGE_DIR` at install
+time.
+
+Two limits to be aware of:
+
+- Persistence protects against restart and crash loss, not long outages. A
+  batch still gives up after its 5-minute retry window, so during a
+  multi-hour outage the queue drains itself by dropping.
+- Logs are still tailed from EOF (`start_at: end`). The persistent queue
+  replays batches that were already exported into it; it does not backfill
+  log lines written while the agent was down.
+
+To change the cap, edit `max_size` (bytes) in the installed
+`storage-overlay.yaml`. Like `config.yaml`, that file is overwritten when
+you re-run the installer, so pin a version and diff before upgrading.
 
 ## How install works
 
@@ -227,6 +272,7 @@ buffering open an issue (path: `file_storage` extension +
   │   4. copy default.yaml → config.yaml                         │
   │      (+ logs-overlay.yaml    if TRACEWAY_LOG_PATHS set)      │
   │      (+ process-overlay.yaml if TRACEWAY_PROCESS_NAMES set)  │
+  │      (+ storage-overlay.yaml unless PERSISTENT_QUEUE=off)    │
   │   5. register systemd / launchd / Windows service            │
   └────────────────────────────┬─────────────────────────────────┘
                                │
@@ -237,11 +283,12 @@ buffering open an issue (path: `file_storage` extension +
                          (Bearer $TRACEWAY_TOKEN)
 ```
 
-Installed `config.yaml` is a byte-for-byte copy of
-[`config/default.yaml`](config/default.yaml); the logs overlay (when
-`TRACEWAY_LOG_PATHS` is set) and the process-metrics overlay (when
-`TRACEWAY_PROCESS_NAMES` is set) are each merged on top at startup via
-additional `--config=` flags. The Bearer token never hits process
+Installed `config.yaml` and `storage-overlay.yaml` are byte-for-byte copies
+of [`config/default.yaml`](config/default.yaml) and
+[`config/storage-overlay.yaml`](config/storage-overlay.yaml); those two, the
+logs overlay (when `TRACEWAY_LOG_PATHS` is set), and the process-metrics
+overlay (when `TRACEWAY_PROCESS_NAMES` is set) are merged at startup via
+stacked `--config=` flags. The Bearer token never hits process
 listings — stored in a mode-0600 `EnvironmentFile` (Linux), inlined in a
 root-owned plist (macOS), or in the service's registry `Environment` key
 (Windows).
@@ -261,14 +308,15 @@ Stop-Service TracewayOtelAgent; sc.exe delete TracewayOtelAgent
 Remove-Item -Recurse -Force 'C:\Program Files\TracewayOtelAgent', 'C:\ProgramData\TracewayOtelAgent'
 ```
 
-Stops + removes the service, binary, and config directory. Your Traceway
-project is untouched.
+Stops + removes the service, binary, config directory, and queue data
+directory. Your Traceway project is untouched.
 
 ## Development & testing
 
 ```bash
 # OpenTelemetry Collector Builder, pinned to match builder-config.yaml.
-go install go.opentelemetry.io/collector/cmd/builder@v0.116.0
+# Needs Go 1.25+.
+go install go.opentelemetry.io/collector/cmd/builder@v0.159.0
 
 # Optional linters — `make lint` skips them gracefully if absent.
 brew install shellcheck       # or: apt-get install shellcheck
@@ -293,14 +341,14 @@ Three test layers, each catching a different class of regression:
 | 3     | `make test-install`           | ~60s  | `install.sh` download / checksum / systemd wiring breaks; service fails to boot; no metrics after install |
 
 **Layer 2** runs the OCB-built collector against **the real
-`config/default.yaml`**, merged on top of a small
-`tests/e2e/testdata/fast-overlay.yaml` (2s scrape interval, no cloud
-detectors). Drift between the shipped config and asserted behavior fails
+`config/default.yaml` + `config/storage-overlay.yaml`** (persistent queue in
+a temp dir), merged with a small `tests/e2e/testdata/fast-overlay.yaml`
+(2s scrape interval, no cloud detectors). Drift between the shipped config and asserted behavior fails
 the test. The mock OTLP/HTTP receiver (`tests/mockotlp/`) records every
 request and surfaces decoded metrics + headers for assertions.
 
 **Layer 3** builds `mockotlp` for `linux/amd64`, packages
-`dist/traceway-otel-agent` + `config/default.yaml` into a fake release
+`dist/traceway-otel-agent` + the shipped configs into a fake release
 tarball with matching `checksums.txt`, runs a systemd-enabled Ubuntu
 container (`--privileged --cgroupns=host`), execs `bash install.sh` against
 `TRACEWAY_RELEASES_URL=file:///fixture`, and asserts metrics actually flow
@@ -321,7 +369,7 @@ Required repo secrets: `CLOUDFLARE_API_TOKEN` (scoped to the
 ### Troubleshooting
 
 - **`make build` fails with "builder: command not found"**: install OCB
-  (`go install go.opentelemetry.io/collector/cmd/builder@v0.116.0`) and
+  (`go install go.opentelemetry.io/collector/cmd/builder@v0.159.0`) and
   make sure `$(go env GOPATH)/bin` is on `PATH`.
 - **`make test-e2e` hangs or times out**: usually port 13133 is already in
   use by another collector on the host. The test prints the collector's
@@ -361,4 +409,4 @@ To point at an embedded local Traceway for development, see [`traceway/examples/
 
 ## License
 
-TBD.
+[MIT](LICENSE).

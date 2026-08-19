@@ -12,14 +12,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Install OCB
-        run: go install go.opentelemetry.io/collector/cmd/builder@v0.116.0
+        run: go install go.opentelemetry.io/collector/cmd/builder@v0.159.0
 
       - name: Build collector
         run: |
@@ -31,10 +31,19 @@ jobs:
           TRACEWAY_TOKEN: ci-placeholder-token
           TRACEWAY_ENDPOINT: https://cloud.tracewayapp.com/api/otel
           TRACEWAY_SERVICE_NAME: ci
-        run: ./dist/traceway-otel-agent validate --config=config/default.yaml
+          TRACEWAY_STORAGE_DIR: /tmp/traceway-validate-storage
+        run: |
+          ./dist/traceway-otel-agent validate --config=config/default.yaml
+          # Every overlay a fully-featured install runs with: the shipped
+          # storage overlay plus the shapes install.sh/install.ps1 generate
+          # for logs and process metrics.
+          ./dist/traceway-otel-agent validate --config=config/default.yaml \
+            --config=config/storage-overlay.yaml \
+            --config=tests/validate/logs-overlay.yaml \
+            --config=tests/validate/process-overlay.yaml
 
       - name: Upload collector binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-linux-amd64
           path: dist/traceway-otel-agent
@@ -44,7 +53,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: ShellCheck
         run: |
@@ -57,7 +66,7 @@ jobs:
           python -m pip install --user yamllint
           ~/.local/bin/yamllint \
             -d "{extends: default, rules: {line-length: disable, document-start: disable, comments: {min-spaces-from-content: 1}, truthy: {check-keys: false}}}" \
-            config/ builder-config.yaml .github/workflows/ tests/e2e/testdata/
+            config/ builder-config.yaml .github/workflows/ tests/e2e/testdata/ tests/validate/
 
       - name: PSScriptAnalyzer
         shell: pwsh
@@ -70,14 +79,14 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Download collector binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-linux-amd64
           path: dist
@@ -92,14 +101,14 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Download collector binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-linux-amd64
           path: dist

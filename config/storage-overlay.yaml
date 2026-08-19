@@ -1,0 +1,40 @@
+# Traceway OTel Agent — persistent-queue overlay.
+#
+# Shipped verbatim in the release tarball and copied to the config directory
+# by the installers (same single-source-of-truth rule as default.yaml). Loaded
+# by default via an extra `--config=` flag; set TRACEWAY_PERSISTENT_QUEUE=off
+# at install time to skip it and fall back to the in-memory queue.
+#
+# What it does: backs the otlphttp exporter's sending queue with an on-disk
+# bbolt database, so batches queued while the backend is unreachable survive
+# an agent restart or crash. The retry window is unchanged (a batch is still
+# dropped after 5 minutes of failed sends); this protects against restart
+# loss, not multi-hour outages.
+#
+# Disk usage is hard-capped by `max_size`: the database file cannot grow past
+# it. When the cap (or the 1000-batch queue limit, whichever hits first) is
+# reached, new batches are dropped — the same overflow behavior as the
+# in-memory queue.
+#
+# Required env var (set by the installers):
+#   TRACEWAY_STORAGE_DIR  Directory for the queue database. Installer
+#                         defaults: /var/lib/traceway-otel-agent (Linux),
+#                         /usr/local/var/traceway-otel-agent (macOS),
+#                         C:\ProgramData\TracewayOtelAgent\storage (Windows).
+
+extensions:
+  file_storage:
+    directory: ${env:TRACEWAY_STORAGE_DIR}
+    create_directory: true
+    directory_permissions: "0700"
+    max_size: 67108864  # 64 MiB, hard cap on the on-disk queue file
+
+exporters:
+  otlphttp:
+    sending_queue:
+      storage: file_storage
+
+service:
+  # Lists replace (not merge) across --config files, so health_check must be
+  # repeated here.
+  extensions: [health_check, file_storage]

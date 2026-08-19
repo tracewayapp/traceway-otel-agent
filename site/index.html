@@ -46,7 +46,9 @@ iwr -useb https://install.tracewayapp.com/install.ps1 | iex</code></pre>
   <h2>Optional env vars</h2>
   <p><kbd>TRACEWAY_ENDPOINT</kbd> <span class="muted">— OTLP base URL, default <code>https://cloud.tracewayapp.com/api/otel</code>.</span><br>
      <kbd>TRACEWAY_SERVICE_NAME</kbd> <span class="muted">— <code>service.name</code>, default hostname.</span><br>
-     <kbd>TRACEWAY_LOG_PATHS</kbd> <span class="muted">— comma-separated globs to tail. Enables the logs pipeline.</span></p>
+     <kbd>TRACEWAY_LOG_PATHS</kbd> <span class="muted">— comma-separated globs to tail. Enables the logs pipeline.</span><br>
+     <kbd>TRACEWAY_PROCESS_NAMES</kbd> <span class="muted">— comma-separated process names (or <code>*</code>). Enables per-process metrics.</span><br>
+     <kbd>TRACEWAY_PERSISTENT_QUEUE</kbd> <span class="muted">— <code>on</code> (default) backs the export queue with a 64&nbsp;MiB disk file so batches survive restarts; <code>off</code> keeps it in-memory.</span></p>
 
   <h2>Uninstall</h2>
 <pre><code>curl -fsSL https://install.tracewayapp.com/uninstall.sh | bash</code></pre>

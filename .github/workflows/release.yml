@@ -21,14 +21,14 @@ jobs:
           - {goos: darwin, goarch: arm64}
           - {goos: windows, goarch: amd64}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Install OCB
-        run: go install go.opentelemetry.io/collector/cmd/builder@v0.116.0
+        run: go install go.opentelemetry.io/collector/cmd/builder@v0.159.0
 
       - name: Build
         env:
@@ -38,10 +38,10 @@ jobs:
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           builder --config=builder-config.yaml
-          # OCB v0.116 uses `dist.name` verbatim regardless of GOOS, so the
-          # Windows binary comes out without an .exe suffix. Rename it so the
-          # package step (and end users) get the expected filename.
-          if [ "${GOOS}" = "windows" ]; then
+          # OCB appends .exe itself when GOOS=windows (since ~v0.126); older
+          # versions used `dist.name` verbatim. Handle both so an OCB bump
+          # can't silently break the Windows artifact.
+          if [ "${GOOS}" = "windows" ] && [ ! -f dist/traceway-otel-agent.exe ]; then
             mv dist/traceway-otel-agent dist/traceway-otel-agent.exe
           fi
 
@@ -59,7 +59,7 @@ jobs:
           else
             cp dist/traceway-otel-agent "pkg/${NAME}/traceway-otel-agent"
           fi
-          cp README.md config/default.yaml "pkg/${NAME}/"
+          cp README.md LICENSE config/default.yaml config/storage-overlay.yaml "pkg/${NAME}/"
           if [ -d scripts/service ]; then
             cp -r scripts/service "pkg/${NAME}/service"
           fi
@@ -70,7 +70,7 @@ jobs:
             tar -czf "../${NAME}.tar.gz" "${NAME}"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pkg-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -82,7 +82,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: pkg-*
@@ -96,7 +96,7 @@ jobs:
           echo "--- checksums.txt ---"
           cat checksums.txt
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             artifacts/traceway-otel-agent_*.tar.gz

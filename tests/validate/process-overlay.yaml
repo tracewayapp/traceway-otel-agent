@@ -1,0 +1,18 @@
+# Mirror of the overlay scripts/install.sh and scripts/install.ps1 write when
+# TRACEWAY_PROCESS_NAMES is set (the non-`*` form, which also emits the
+# include filter). `make validate` loads it on top of config/default.yaml so
+# upstream config-schema drift in the hostmetrics process scraper is caught
+# in CI. Keep this file structurally identical to what the installers emit.
+
+receivers:
+  hostmetrics:
+    scrapers:
+      process:
+        mute_process_exe_error: true
+        mute_process_user_error: true
+        mute_process_io_error: true
+        include:
+          match_type: strict
+          names:
+            - "myapp"
+            - "postgres"

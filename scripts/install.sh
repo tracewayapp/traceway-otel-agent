@@ -13,6 +13,13 @@
 #                           Opts into per-process metrics. Off by default
 #                           because cardinality scales with the host's
 #                           process count.
+#   TRACEWAY_PERSISTENT_QUEUE  `on` (default) or `off`. When on, the exporter
+#                           queue is backed by an on-disk file with a 64 MiB
+#                           cap, so batches queued during a backend outage
+#                           survive agent restarts.
+#   TRACEWAY_STORAGE_DIR    Directory for the persistent-queue database.
+#                           Default: /var/lib/traceway-otel-agent (Linux),
+#                           /usr/local/var/traceway-otel-agent (macOS).
 #   TRACEWAY_VERSION        Override agent version (default: pinned at deploy time)
 #   TRACEWAY_RELEASES_URL   Override release-archive base URL (default: GitHub Releases).
 #                           Accepts file:// URLs for air-gapped / test installs.
@@ -42,6 +49,10 @@ ENDPOINT="${TRACEWAY_ENDPOINT:-https://cloud.tracewayapp.com/api/otel}"
 SERVICE_NAME="${TRACEWAY_SERVICE_NAME:-$(hostname 2>/dev/null || echo traceway-host)}"
 LOG_PATHS="${TRACEWAY_LOG_PATHS:-}"
 PROCESS_NAMES="${TRACEWAY_PROCESS_NAMES:-}"
+case "$(printf '%s' "${TRACEWAY_PERSISTENT_QUEUE:-on}" | tr '[:upper:]' '[:lower:]')" in
+  off|false|0) PERSIST=false ;;
+  *)           PERSIST=true  ;;
+esac
 
 UNAME_S="$(uname -s)"
 UNAME_M="$(uname -m)"
@@ -61,10 +72,12 @@ if [ "$OS" = "linux" ]; then
   BIN_DIR="/usr/local/bin"
   CONFIG_DIR="/etc/traceway-otel-agent"
   UNIT_PATH="/etc/systemd/system/traceway-otel-agent.service"
+  STORAGE_DIR="${TRACEWAY_STORAGE_DIR:-/var/lib/traceway-otel-agent}"
 else
   BIN_DIR="/usr/local/bin"
   CONFIG_DIR="/usr/local/etc/traceway-otel-agent"
   PLIST_PATH="/Library/LaunchDaemons/com.tracewayapp.otel-agent.plist"
+  STORAGE_DIR="${TRACEWAY_STORAGE_DIR:-/usr/local/var/traceway-otel-agent}"
 fi
 BIN_PATH="${BIN_DIR}/traceway-otel-agent"
 CONFIG_PATH="${CONFIG_DIR}/config.yaml"
@@ -223,13 +236,45 @@ else
   $SUDO rm -f "$PROCESS_OVERLAY_PATH"
 fi
 
+# Persistent-queue overlay: shipped verbatim in the release tarball (like
+# default.yaml) and loaded via an extra --config= flag. On by default; set
+# TRACEWAY_PERSISTENT_QUEUE=off to keep the queue in-memory.
+STORAGE_OVERLAY_PATH="${CONFIG_DIR}/storage-overlay.yaml"
+STORAGE_OVERLAY_EXEC_ARG=""
+STORAGE_OVERLAY_PLIST_ARG=""
+if [ "$PERSIST" = true ] && [ ! -f "${SRC_DIR}/storage-overlay.yaml" ]; then
+  log "warning: this release predates the persistent queue (no storage-overlay.yaml in tarball); continuing without it"
+  PERSIST=false
+fi
+if [ "$PERSIST" = true ]; then
+  log "installing storage overlay → $STORAGE_OVERLAY_PATH (queue data in ${STORAGE_DIR}, 64 MiB cap)"
+  $SUDO install -m 0644 "${SRC_DIR}/storage-overlay.yaml" "$STORAGE_OVERLAY_PATH"
+  $SUDO mkdir -p "$STORAGE_DIR"
+  $SUDO chmod 700 "$STORAGE_DIR"
+  STORAGE_OVERLAY_EXEC_ARG=" --config=${STORAGE_OVERLAY_PATH}"
+  STORAGE_OVERLAY_PLIST_ARG="
+    <string>--config=${STORAGE_OVERLAY_PATH}</string>"
+else
+  # Clean up a stale overlay from a previous persistent-queue install. The
+  # data directory is left alone; uninstall.sh removes it.
+  $SUDO rm -f "$STORAGE_OVERLAY_PATH"
+fi
+
 log "writing token → $TOKEN_PATH (mode 0600)"
+# Create the file 0600 *before* writing the secret: tee on a fresh file would
+# briefly leave the token world-readable under the default umask.
+$SUDO install -m 600 /dev/null "$TOKEN_PATH"
 $SUDO tee "$TOKEN_PATH" >/dev/null <<EOF
 TRACEWAY_TOKEN=${TRACEWAY_TOKEN}
 TRACEWAY_ENDPOINT=${ENDPOINT}
 TRACEWAY_SERVICE_NAME=${SERVICE_NAME}
+TRACEWAY_STORAGE_DIR=${STORAGE_DIR}
 EOF
-$SUDO chmod 600 "$TOKEN_PATH"
+
+RW_PATHS="${CONFIG_DIR}"
+if [ "$PERSIST" = true ]; then
+  RW_PATHS="${RW_PATHS} ${STORAGE_DIR}"
+fi
 
 if [ "$OS" = "linux" ]; then
   log "installing systemd unit → $UNIT_PATH"
@@ -243,23 +288,30 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=${TOKEN_PATH}
-ExecStart=${BIN_PATH} --config=${CONFIG_PATH}${OVERLAY_EXEC_ARG}${PROCESS_OVERLAY_EXEC_ARG}
+ExecStart=${BIN_PATH} --config=${CONFIG_PATH}${OVERLAY_EXEC_ARG}${PROCESS_OVERLAY_EXEC_ARG}${STORAGE_OVERLAY_EXEC_ARG}
 Restart=on-failure
 RestartSec=10s
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=${CONFIG_DIR}
+ReadWritePaths=${RW_PATHS}
 
 [Install]
 WantedBy=multi-user.target
 EOF
   $SUDO systemctl daemon-reload
-  $SUDO systemctl enable --now traceway-otel-agent.service
+  # enable + restart (not `enable --now`): on an upgrade the service is
+  # already running and `--now` is a no-op then, so the old binary would keep
+  # running and the health check below would pass against it.
+  $SUDO systemctl enable traceway-otel-agent.service
+  $SUDO systemctl restart traceway-otel-agent.service
 else
   log "installing launchd plist → $PLIST_PATH"
   # macOS launchd has no EnvironmentFile equivalent, so env vars are inline.
+  # Create 0600 before writing: the plist embeds TRACEWAY_TOKEN and tee on a
+  # fresh file would briefly leave it world-readable under the default umask.
+  $SUDO install -m 600 /dev/null "$PLIST_PATH"
   $SUDO tee "$PLIST_PATH" >/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -269,13 +321,14 @@ else
   <key>ProgramArguments</key>
   <array>
     <string>${BIN_PATH}</string>
-    <string>--config=${CONFIG_PATH}</string>${OVERLAY_PLIST_ARG}${PROCESS_OVERLAY_PLIST_ARG}
+    <string>--config=${CONFIG_PATH}</string>${OVERLAY_PLIST_ARG}${PROCESS_OVERLAY_PLIST_ARG}${STORAGE_OVERLAY_PLIST_ARG}
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>TRACEWAY_TOKEN</key><string>${TRACEWAY_TOKEN}</string>
     <key>TRACEWAY_ENDPOINT</key><string>${ENDPOINT}</string>
     <key>TRACEWAY_SERVICE_NAME</key><string>${SERVICE_NAME}</string>
+    <key>TRACEWAY_STORAGE_DIR</key><string>${STORAGE_DIR}</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -313,4 +366,7 @@ if [ -z "$LOG_PATHS" ]; then
 fi
 if [ -z "$PROCESS_NAMES" ]; then
   log "note: per-process metrics are disabled (set TRACEWAY_PROCESS_NAMES=<name1,name2> or '*' and re-run to enable)"
+fi
+if [ "$PERSIST" = false ]; then
+  log "note: persistent queue is disabled (queue is in-memory; batches pending at restart are lost)"
 fi

@@ -38,7 +38,7 @@ step "assemble fake release bundle"
 PKG="traceway-otel-agent_${TAG}_${OS}_${ARCH}"
 mkdir -p "$STAGE/pkg/$PKG" "$STAGE/fixture/$TAG"
 cp dist/traceway-otel-agent "$STAGE/pkg/$PKG/traceway-otel-agent"
-cp README.md config/default.yaml "$STAGE/pkg/$PKG/"
+cp README.md LICENSE config/default.yaml config/storage-overlay.yaml "$STAGE/pkg/$PKG/"
 cp -r scripts/service "$STAGE/pkg/$PKG/service"
 tar -C "$STAGE/pkg" -czf "$STAGE/fixture/$TAG/$PKG.tar.gz" "$PKG"
 ( cd "$STAGE/fixture/$TAG" && sha256sum "$PKG.tar.gz" > checksums.txt )
@@ -109,6 +109,12 @@ docker exec "$CID" curl -fsS http://127.0.0.1:13133/ >/dev/null
 step "assert config file is correct"
 docker exec "$CID" test -f /etc/traceway-otel-agent/config.yaml
 docker exec "$CID" grep -q 'Bearer ${env:TRACEWAY_TOKEN}' /etc/traceway-otel-agent/config.yaml
+
+step "assert persistent queue is active (default-on)"
+docker exec "$CID" test -f /etc/traceway-otel-agent/storage-overlay.yaml
+# The file_storage extension creates its bbolt database file at startup, so a
+# non-empty storage dir proves the persistent queue actually engaged.
+docker exec "$CID" sh -c 'ls -A /var/lib/traceway-otel-agent | grep -q .'
 
 step "wait for mock to receive at least one batch"
 got=0

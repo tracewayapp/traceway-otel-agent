@@ -16,9 +16,10 @@ import (
 
 // Paths are relative to this test file.
 const (
-	binaryPath  = "../../dist/traceway-otel-agent"
-	baseConfig  = "../../config/default.yaml"
-	fastOverlay = "testdata/fast-overlay.yaml"
+	binaryPath     = "../../dist/traceway-otel-agent"
+	baseConfig     = "../../config/default.yaml"
+	storageOverlay = "../../config/storage-overlay.yaml"
+	fastOverlay    = "testdata/fast-overlay.yaml"
 )
 
 func TestAgent_ExportsHostMetrics(t *testing.T) {
@@ -33,9 +34,14 @@ func TestAgent_ExportsHostMetrics(t *testing.T) {
 	mock := mockotlp.New()
 	defer mock.Close()
 
-	// Exercise the real production config; the overlay only shrinks timings
-	// so the test completes in seconds.
+	// Exercise the real production config, including the shipped storage
+	// overlay (persistent queue is on by default at install time); the fast
+	// overlay only shrinks timings so the test completes in seconds.
 	base, err := filepath.Abs(baseConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := filepath.Abs(storageOverlay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,15 +49,17 @@ func TestAgent_ExportsHostMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	storageDir := t.TempDir()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin, "--config="+base, "--config="+overlay)
+	cmd := exec.CommandContext(ctx, bin, "--config="+base, "--config="+storage, "--config="+overlay)
 	cmd.Env = append(os.Environ(),
 		"TRACEWAY_TOKEN=test-token-e2e",
 		"TRACEWAY_ENDPOINT="+mock.URL(),
 		"TRACEWAY_SERVICE_NAME=ci-e2e",
+		"TRACEWAY_STORAGE_DIR="+storageDir,
 	)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
@@ -126,6 +134,16 @@ func TestAgent_ExportsHostMetrics(t *testing.T) {
 		if !saw {
 			t.Errorf("expected metric %q in received data; was not present", name)
 		}
+	}
+
+	// The file_storage extension creates its queue database at startup, so a
+	// non-empty storage dir proves the persistent queue is actually engaged.
+	entries, err := os.ReadDir(storageDir)
+	if err != nil {
+		t.Fatalf("reading storage dir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Errorf("expected file_storage to create a queue database in %s; dir is empty", storageDir)
 	}
 
 	t.Logf("received %d OTLP requests; pipeline is healthy on %s/%s",
